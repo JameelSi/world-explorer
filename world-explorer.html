@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Explorer</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b1220;
+  --sidebar:#0e1829;
+  --border:#1d2d48;
+  --sea:#111e33;
+  --land:#243554;
+  --land-stroke:#19274a;
+  --land-hover:#344f7a;
+  --land-found:#c9923a;
+  --land-found-hover:#e0a844;
+  --land-found-stroke:#e8b04a;
+  --accent:#d4a843;
+  --accent-glow:rgba(212,168,67,0.12);
+  --text:#d8c99a;
+  --text-dim:#5a7090;
+  --text-muted:#2e4060;
+  --green:#4caf80;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:'Outfit',sans-serif;color:var(--text)}
+#app{display:flex;width:100%;height:100%;overflow:hidden}
+
+/* SIDEBAR */
+#sidebar{
+  width:270px;min-width:270px;height:100%;
+  background:var(--sidebar);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  padding:22px 18px;gap:18px;
+  overflow:hidden;
+  position:relative;
+}
+#sidebar::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at top,rgba(212,168,67,0.04) 0%,transparent 60%);
+  pointer-events:none;
+}
+.logo{
+  text-align:center;
+  padding-bottom:16px;
+  border-bottom:1px solid var(--border);
+}
+.logo h1{
+  font-family:'Cinzel',serif;
+  font-size:17px;font-weight:700;
+  color:var(--accent);
+  letter-spacing:.12em;text-transform:uppercase;
+}
+.logo p{font-size:10.5px;color:var(--text-dim);margin-top:4px;letter-spacing:.06em}
+
+/* INFO */
+#info{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:10px;min-height:0;
+}
+#prompt{text-align:center;color:var(--text-muted);font-size:13px;line-height:1.7}
+#prompt .globe{font-size:44px;display:block;margin-bottom:10px;opacity:.3;filter:grayscale(1)}
+#card{display:none;flex-direction:column;align-items:center;gap:8px;width:100%}
+#card.on{display:flex}
+#flag{
+  width:90px;height:auto;
+  border-radius:4px;
+  box-shadow:0 4px 20px rgba(0,0,0,.5);
+  display:block;
+  animation:pop .35s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+#cname{
+  font-family:'Cinzel',serif;
+  font-size:15px;font-weight:600;
+  color:var(--accent);
+  text-align:center;letter-spacing:.04em;
+  line-height:1.4;
+}
+#badge{
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--green);font-weight:500;
+  opacity:0;transition:opacity .3s;
+  background:rgba(76,175,128,.08);
+  border:1px solid rgba(76,175,128,.2);
+  padding:3px 10px;border-radius:20px;
+}
+#badge.on{opacity:1}
+
+/* COUNTER */
+.stat{border-top:1px solid var(--border);padding-top:16px}
+.stat-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px}
+.stat-num{
+  font-family:'Cinzel',serif;font-size:30px;font-weight:600;
+  color:var(--accent);line-height:1;
+}
+.stat-num .of{font-size:15px;color:var(--text-dim)}
+.stat-sub{font-size:11px;color:var(--text-dim);margin-top:3px;min-height:16px}
+.pbar{margin-top:10px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.pfill{height:100%;background:linear-gradient(90deg,#b87e28,#e8b04a);width:0%;transition:width .4s ease;border-radius:2px}
+
+/* CLEAR BTN */
+#clr{
+  width:100%;padding:9px;
+  background:transparent;border:1px solid var(--border);
+  color:var(--text-dim);font-family:'Outfit',sans-serif;
+  font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+  cursor:pointer;border-radius:5px;transition:all .2s;
+}
+#clr:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-glow)}
+
+/* HINTS */
+.hints{display:flex;flex-direction:column;gap:5px}
+.hint{font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:6px}
+.hint-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.hint-dot.grey{background:var(--land)}
+.hint-dot.gold{background:var(--land-found)}
+
+/* MAP */
+#mapwrap{
+  flex:1;position:relative;overflow:hidden;
+  background:var(--sea);
+  background-image:
+    linear-gradient(rgba(29,45,72,.25) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(29,45,72,.25) 1px,transparent 1px);
+  background-size:44px 44px;
+}
+#map{width:100%;height:100%;cursor:grab;display:block}
+#map:active{cursor:grabbing}
+.sphere{fill:var(--sea)}
+.grat{fill:none;stroke:rgba(29,45,72,.5);stroke-width:.5}
+.cp{
+  fill:var(--land);stroke:var(--land-stroke);stroke-width:.5;
+  cursor:pointer;transition:fill .15s;
+}
+.cp:hover:not(.found){fill:var(--land-hover)}
+.cp.found{fill:var(--land-found);stroke:var(--land-found-stroke);stroke-width:.7}
+.cp.found:hover{fill:var(--land-found-hover)}
+
+/* ZOOM CONTROLS */
+.zctrl{position:absolute;bottom:18px;right:18px;display:flex;flex-direction:column;gap:4px}
+.zbtn{
+  width:30px;height:30px;
+  background:rgba(10,18,36,.88);
+  border:1px solid var(--border);color:var(--text-dim);
+  font-size:14px;cursor:pointer;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .2s;font-family:'Outfit',sans-serif;
+}
+.zbtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* LOADING */
+#load{
+  position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;
+  flex-direction:column;gap:12px;
+  color:var(--text-dim);font-size:12px;letter-spacing:.1em;
+}
+.spin{
+  width:28px;height:28px;
+  border:2px solid var(--border);
+  border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* COMPASS */
+.compass{
+  position:absolute;top:16px;right:16px;
+  width:44px;height:44px;opacity:.3;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="logo">
+      <h1>World Explorer</h1>
+      <p>Test your geography knowledge</p>
+    </div>
+
+    <div id="info">
+      <div id="prompt">
+        <span class="globe">🌍</span>
+        Click any country<br>on the map to<br>discover it
+      </div>
+      <div id="card">
+        <div id="flag"></div>
+        <div id="cname"></div>
+        <div id="badge">✦ New Discovery</div>
+      </div>
+    </div>
+
+    <div class="stat">
+      <div class="stat-label">Countries Discovered</div>
+      <div class="stat-num"><span id="cnt">0</span><span class="of"> / <span id="tot">—</span></span></div>
+      <div class="stat-sub" id="sub">Start clicking to explore!</div>
+      <div class="pbar"><div class="pfill" id="pfill"></div></div>
+    </div>
+
+    <div class="hints">
+      <div class="hint"><div class="hint-dot grey"></div><span>Undiscovered country</span></div>
+      <div class="hint"><div class="hint-dot gold"></div><span>Discovered country</span></div>
+    </div>
+
+    <button id="clr">↺ Reset Map</button>
+  </aside>
+
+  <div id="mapwrap">
+    <div id="load"><div class="spin"></div><span>Loading world map…</span></div>
+    <svg id="map"></svg>
+
+    <!-- Compass Rose SVG -->
+    <svg class="compass" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="50,5 55,45 50,50 45,45" fill="#d4a843"/>
+      <polygon points="50,95 55,55 50,50 45,55" fill="#5a7090"/>
+      <polygon points="5,50 45,45 50,50 45,55" fill="#5a7090"/>
+      <polygon points="95,50 55,45 50,50 55,55" fill="#5a7090"/>
+      <circle cx="50" cy="50" r="5" fill="#d4a843" opacity=".6"/>
+      <text x="50" y="2" text-anchor="middle" font-size="9" fill="#d4a843" font-family="Cinzel,serif">N</text>
+    </svg>
+
+    <div class="zctrl">
+      <button class="zbtn" id="zi">+</button>
+      <button class="zbtn" id="zo">−</button>
+      <button class="zbtn" id="zr" style="font-size:12px">⟳</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = {
+  4:{n:"Afghanistan",i:"AF"},8:{n:"Albania",i:"AL"},12:{n:"Algeria",i:"DZ"},
+  16:{n:"American Samoa",i:"AS"},20:{n:"Andorra",i:"AD"},24:{n:"Angola",i:"AO"},
+  28:{n:"Antigua and Barbuda",i:"AG"},31:{n:"Azerbaijan",i:"AZ"},32:{n:"Argentina",i:"AR"},
+  36:{n:"Australia",i:"AU"},40:{n:"Austria",i:"AT"},44:{n:"Bahamas",i:"BS"},
+  48:{n:"Bahrain",i:"BH"},50:{n:"Bangladesh",i:"BD"},52:{n:"Barbados",i:"BB"},
+  56:{n:"Belgium",i:"BE"},64:{n:"Bhutan",i:"BT"},68:{n:"Bolivia",i:"BO"},
+  70:{n:"Bosnia & Herzegovina",i:"BA"},72:{n:"Botswana",i:"BW"},76:{n:"Brazil",i:"BR"},
+  84:{n:"Belize",i:"BZ"},90:{n:"Solomon Islands",i:"SB"},96:{n:"Brunei",i:"BN"},
+  100:{n:"Bulgaria",i:"BG"},104:{n:"Myanmar",i:"MM"},108:{n:"Burundi",i:"BI"},
+  112:{n:"Belarus",i:"BY"},116:{n:"Cambodia",i:"KH"},120:{n:"Cameroon",i:"CM"},
+  124:{n:"Canada",i:"CA"},132:{n:"Cape Verde",i:"CV"},140:{n:"Central African Republic",i:"CF"},
+  144:{n:"Sri Lanka",i:"LK"},148:{n:"Chad",i:"TD"},152:{n:"Chile",i:"CL"},
+  156:{n:"China",i:"CN"},170:{n:"Colombia",i:"CO"},174:{n:"Comoros",i:"KM"},
+  178:{n:"Republic of Congo",i:"CG"},180:{n:"DR Congo",i:"CD"},188:{n:"Costa Rica",i:"CR"},
+  191:{n:"Croatia",i:"HR"},192:{n:"Cuba",i:"CU"},196:{n:"Cyprus",i:"CY"},
+  203:{n:"Czech Republic",i:"CZ"},204:{n:"Benin",i:"BJ"},208:{n:"Denmark",i:"DK"},
+  212:{n:"Dominica",i:"DM"},214:{n:"Dominican Republic",i:"DO"},218:{n:"Ecuador",i:"EC"},
+  222:{n:"El Salvador",i:"SV"},226:{n:"Equatorial Guinea",i:"GQ"},231:{n:"Ethiopia",i:"ET"},
+  232:{n:"Eritrea",i:"ER"},233:{n:"Estonia",i:"EE"},238:{n:"Falkland Islands",i:"FK"},
+  242:{n:"Fiji",i:"FJ"},246:{n:"Finland",i:"FI"},250:{n:"France",i:"FR"},
+  262:{n:"Djibouti",i:"DJ"},266:{n:"Gabon",i:"GA"},268:{n:"Georgia",i:"GE"},
+  270:{n:"Gambia",i:"GM"},275:{n:"Palestine",i:"PS"},276:{n:"Germany",i:"DE"},
+  288:{n:"Ghana",i:"GH"},300:{n:"Greece",i:"GR"},308:{n:"Grenada",i:"GD"},
+  316:{n:"Guam",i:"GU"},320:{n:"Guatemala",i:"GT"},324:{n:"Guinea",i:"GN"},
+  328:{n:"Guyana",i:"GY"},332:{n:"Haiti",i:"HT"},340:{n:"Honduras",i:"HN"},
+  348:{n:"Hungary",i:"HU"},352:{n:"Iceland",i:"IS"},356:{n:"India",i:"IN"},
+  360:{n:"Indonesia",i:"ID"},364:{n:"Iran",i:"IR"},368:{n:"Iraq",i:"IQ"},
+  372:{n:"Ireland",i:"IE"},376:{n:"Israel",i:"IL"},380:{n:"Italy",i:"IT"},
+  384:{n:"Ivory Coast",i:"CI"},388:{n:"Jamaica",i:"JM"},392:{n:"Japan",i:"JP"},
+  398:{n:"Kazakhstan",i:"KZ"},400:{n:"Jordan",i:"JO"},404:{n:"Kenya",i:"KE"},
+  408:{n:"North Korea",i:"KP"},410:{n:"South Korea",i:"KR"},414:{n:"Kuwait",i:"KW"},
+  417:{n:"Kyrgyzstan",i:"KG"},418:{n:"Laos",i:"LA"},422:{n:"Lebanon",i:"LB"},
+  426:{n:"Lesotho",i:"LS"},428:{n:"Latvia",i:"LV"},430:{n:"Liberia",i:"LR"},
+  434:{n:"Libya",i:"LY"},438:{n:"Liechtenstein",i:"LI"},440:{n:"Lithuania",i:"LT"},
+  450:{n:"Madagascar",i:"MG"},454:{n:"Malawi",i:"MW"},458:{n:"Malaysia",i:"MY"},
+  462:{n:"Maldives",i:"MV"},466:{n:"Mali",i:"ML"},470:{n:"Malta",i:"MT"},
+  478:{n:"Mauritania",i:"MR"},480:{n:"Mauritius",i:"MU"},484:{n:"Mexico",i:"MX"},
+  492:{n:"Monaco",i:"MC"},496:{n:"Mongolia",i:"MN"},498:{n:"Moldova",i:"MD"},
+  499:{n:"Montenegro",i:"ME"},504:{n:"Morocco",i:"MA"},508:{n:"Mozambique",i:"MZ"},
+  512:{n:"Oman",i:"OM"},516:{n:"Namibia",i:"NA"},524:{n:"Nepal",i:"NP"},
+  528:{n:"Netherlands",i:"NL"},540:{n:"New Caledonia",i:"NC"},554:{n:"New Zealand",i:"NZ"},
+  558:{n:"Nicaragua",i:"NI"},562:{n:"Niger",i:"NE"},566:{n:"Nigeria",i:"NG"},
+  578:{n:"Norway",i:"NO"},585:{n:"Palau",i:"PW"},586:{n:"Pakistan",i:"PK"},
+  591:{n:"Panama",i:"PA"},598:{n:"Papua New Guinea",i:"PG"},600:{n:"Paraguay",i:"PY"},
+  604:{n:"Peru",i:"PE"},608:{n:"Philippines",i:"PH"},616:{n:"Poland",i:"PL"},
+  620:{n:"Portugal",i:"PT"},626:{n:"Timor-Leste",i:"TL"},634:{n:"Qatar",i:"QA"},
+  642:{n:"Romania",i:"RO"},643:{n:"Russia",i:"RU"},646:{n:"Rwanda",i:"RW"},
+  678:{n:"São Tomé & Príncipe",i:"ST"},682:{n:"Saudi Arabia",i:"SA"},
+  686:{n:"Senegal",i:"SN"},688:{n:"Serbia",i:"RS"},690:{n:"Seychelles",i:"SC"},
+  694:{n:"Sierra Leone",i:"SL"},702:{n:"Singapore",i:"SG"},703:{n:"Slovakia",i:"SK"},
+  705:{n:"Slovenia",i:"SI"},706:{n:"Somalia",i:"SO"},710:{n:"South Africa",i:"ZA"},
+  716:{n:"Zimbabwe",i:"ZW"},724:{n:"Spain",i:"ES"},728:{n:"South Sudan",i:"SS"},
+  729:{n:"Sudan",i:"SD"},740:{n:"Suriname",i:"SR"},748:{n:"Eswatini",i:"SZ"},
+  752:{n:"Sweden",i:"SE"},756:{n:"Switzerland",i:"CH"},760:{n:"Syria",i:"SY"},
+  762:{n:"Tajikistan",i:"TJ"},764:{n:"Thailand",i:"TH"},768:{n:"Togo",i:"TG"},
+  776:{n:"Tonga",i:"TO"},780:{n:"Trinidad & Tobago",i:"TT"},788:{n:"Tunisia",i:"TN"},
+  792:{n:"Turkey",i:"TR"},795:{n:"Turkmenistan",i:"TM"},798:{n:"Tuvalu",i:"TV"},
+  800:{n:"Uganda",i:"UG"},804:{n:"Ukraine",i:"UA"},784:{n:"UAE",i:"AE"},
+  807:{n:"North Macedonia",i:"MK"},818:{n:"Egypt",i:"EG"},826:{n:"United Kingdom",i:"GB"},
+  840:{n:"United States",i:"US"},858:{n:"Uruguay",i:"UY"},860:{n:"Uzbekistan",i:"UZ"},
+  862:{n:"Venezuela",i:"VE"},704:{n:"Vietnam",i:"VN"},882:{n:"Samoa",i:"WS"},
+  887:{n:"Yemen",i:"YE"},894:{n:"Zambia",i:"ZM"},548:{n:"Vanuatu",i:"VU"},
+  882:{n:"Samoa",i:"WS"},90:{n:"Solomon Islands",i:"SB"},598:{n:"Papua New Guinea",i:"PG"},
+  242:{n:"Fiji",i:"FJ"},554:{n:"New Zealand",i:"NZ"},36:{n:"Australia",i:"AU"},
+};
+
+const found=new Set();
+const mw=document.getElementById('mapwrap');
+let total=0;
+
+const svg=d3.select('#map');
+const g=svg.append('g');
+
+const zoom=d3.zoom().scaleExtent([1,10]).on('zoom',e=>{
+  g.attr('transform',e.transform);
+  g.selectAll('.cp').style('stroke-width',.5/e.transform.k+'px');
+});
+svg.call(zoom);
+
+function showInfo(d,isNew){
+  const f=document.getElementById('flag');
+  const n=document.getElementById('cname');
+  const b=document.getElementById('badge');
+  const prom=document.getElementById('prompt');
+  const card=document.getElementById('card');
+  const img=document.createElement('img');
+  img.src=`https://flagcdn.com/w80/${d.i.toLowerCase()}.png`;
+  img.alt=d.n+' flag';
+  img.style.cssText='width:90px;height:auto;border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,.5);display:block;animation:pop .35s cubic-bezier(.34,1.56,.64,1)';
+  f.innerHTML='';
+  f.appendChild(img);
+  n.textContent=d.n;
+  b.classList.toggle('on',isNew);
+  if(isNew)setTimeout(()=>b.classList.remove('on'),2200);
+  prom.style.display='none';
+  card.classList.add('on');
+}
+
+function updateCounter(){
+  const c=found.size;
+  document.getElementById('cnt').textContent=c;
+  document.getElementById('pfill').style.width=(total>0?c/total*100:0)+'%';
+  const s=document.getElementById('sub');
+  if(c===0)s.textContent='Start clicking to explore!';
+  else if(c<5)s.textContent='Good start!';
+  else if(c<20)s.textContent='Getting warmed up!';
+  else if(c<50)s.textContent='Nice progress!';
+  else if(c<100)s.textContent='Over halfway!';
+  else if(c<total)s.textContent='Almost there!';
+  else s.textContent='🎉 You found them all!';
+}
+
+async function init(){
+  const w=mw.clientWidth,h=mw.clientHeight;
+  svg.attr('width',w).attr('height',h);
+
+  const proj=d3.geoNaturalEarth1().scale(w/6.1).translate([w/2,h/2]);
+  const path=d3.geoPath().projection(proj);
+  const grat=d3.geoGraticule();
+
+  g.append('path').datum({type:'Sphere'}).attr('class','sphere').attr('d',path);
+  g.append('path').datum(grat()).attr('class','grat').attr('d',path);
+
+  const world=await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+  const countries=topojson.feature(world,world.objects.countries);
+  total=195;
+  document.getElementById('tot').textContent=195;
+  document.getElementById('load').style.display='none';
+
+  g.selectAll('.cp')
+    .data(countries.features)
+    .join('path')
+    .attr('class','cp')
+    .attr('d',path)
+    .on('click',function(e,d){
+      e.stopPropagation();
+      const id=+d.id;
+      const info=DATA[id];
+      if(!info)return;
+      const isNew=!found.has(id);
+      if(isNew){found.add(id);d3.select(this).classed('found',true);updateCounter();}
+      showInfo(info,isNew);
+    });
+
+  document.getElementById('zi').onclick=()=>svg.transition().call(zoom.scaleBy,1.5);
+  document.getElementById('zo').onclick=()=>svg.transition().call(zoom.scaleBy,.67);
+  document.getElementById('zr').onclick=()=>svg.transition().duration(500).call(zoom.transform,d3.zoomIdentity);
+
+  document.getElementById('clr').onclick=()=>{
+    found.clear();
+    d3.selectAll('.cp.found').classed('found',false);
+    updateCounter();
+    document.getElementById('prompt').style.display='block';
+    document.getElementById('card').classList.remove('on');
+  };
+
+  // Handle resize
+  window.addEventListener('resize',()=>{
+    const nw=mw.clientWidth,nh=mw.clientHeight;
+    svg.attr('width',nw).attr('height',nh);
+    proj.scale(nw/6.1).translate([nw/2,nh/2]);
+    g.selectAll('.cp').attr('d',path);
+    g.select('.sphere').attr('d',path);
+    g.select('.grat').attr('d',path);
+  });
+}
+
+init().catch(err=>{
+  document.getElementById('load').innerHTML=`<p style="color:#e57373;font-size:13px">Failed to load map. Check your connection.</p>`;
+  console.error(err);
+});
+</script>
+</body>
+</html>
