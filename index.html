@@ -13,8 +13,8 @@
   --bg:#0b1220;
   --sidebar:#0e1829;
   --border:#1d2d48;
-  --sea:#111e33;
-  --land:#243554;
+  --sea:rgb(229, 229, 229);
+  --land:#a3b4c3;
   --land-stroke:#19274a;
   --land-hover:#344f7a;
   --land-found:#c9923a;
@@ -127,9 +127,6 @@ body{font-family:'Outfit',sans-serif;color:var(--text)}
 #mapwrap{
   flex:1;position:relative;overflow:hidden;
   background:var(--sea);
-  background-image:
-    linear-gradient(rgba(29,45,72,.25) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(29,45,72,.25) 1px,transparent 1px);
   background-size:44px 44px;
 }
 #map{width:100%;height:100%;cursor:grab;display:block}
@@ -356,15 +353,13 @@ async function init(){
 
   const proj=d3.geoNaturalEarth1().scale(w/6.1).translate([w/2,h/2]);
   const path=d3.geoPath().projection(proj);
-  const grat=d3.geoGraticule();
 
   g.append('path').datum({type:'Sphere'}).attr('class','sphere').attr('d',path);
-  g.append('path').datum(grat()).attr('class','grat').attr('d',path);
 
   const world=await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
   const countries=topojson.feature(world,world.objects.countries);
-  total=195;
-  document.getElementById('tot').textContent=195;
+  total = countries.features.length;
+  document.getElementById('tot').textContent = total;
   document.getElementById('load').style.display='none';
 
   g.selectAll('.cp')
@@ -372,14 +367,26 @@ async function init(){
     .join('path')
     .attr('class','cp')
     .attr('d',path)
-    .on('click',function(e,d){
+    .on('click', function (e, d) {
       e.stopPropagation();
-      const id=+d.id;
-      const info=DATA[id];
-      if(!info)return;
-      const isNew=!found.has(id);
-      if(isNew){found.add(id);d3.select(this).classed('found',true);updateCounter();}
-      showInfo(info,isNew);
+
+      const id = d.id ?? d.properties?.iso_n3 ?? d.properties?.name;
+      const isNew = !found.has(id);
+
+      if (isNew) {
+        found.add(id);
+        d3.select(this).classed('found', true);
+        updateCounter();
+      }
+
+      const info =
+        DATA[d.id] ??
+        {
+          n: d.properties?.name || 'Unknown',
+          i: d.properties?.iso_a2 || 'un'
+        };
+
+      showInfo(info, isNew);
     });
 
   document.getElementById('zi').onclick=()=>svg.transition().call(zoom.scaleBy,1.5);
